@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stoplight Highlighter</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+      background: #f4f4ef;
+      color: #2c2c2c;
+    }
+
+    h1 { font-size: 1.55rem; margin-bottom: 16px; color: #333; font-weight: normal; }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 10px 14px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    #file-label {
+      cursor: pointer;
+      padding: 5px 13px;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    #file-label:hover { background: #e4e4e4; }
+    #file-input { display: none; }
+    #file-name { font-size: 13px; color: #777; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tbtn {
+      padding: 5px 14px;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #fff;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .tbtn:hover:not(:disabled) { background: #f0f0f0; }
+    .tbtn:disabled { color: #ccc; cursor: default; }
+
+    /* ── Instructions ── */
+    #instructions {
+      background: #fffaec;
+      border: 1px solid #e6d98a;
+      border-radius: 6px;
+      padding: 10px 15px;
+      margin-bottom: 14px;
+      font-size: 13.5px;
+      font-family: sans-serif;
+      line-height: 1.75;
+    }
+    kbd {
+      background: #eee;
+      border: 1px solid #ccc;
+      border-bottom: 2px solid #b8b8b8;
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    /* ── Text display ── */
+    #text-container {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 24px 28px;
+      line-height: 2;
+      font-size: 16px;
+      min-height: 200px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      user-select: text;
+      cursor: default;
+    }
+    #text-container.empty::before {
+      content: 'Upload a .txt file above to get started.';
+      color: #bbb;
+      font-style: italic;
+      font-family: sans-serif;
+    }
+
+    /* ── Sentence spans ── */
+    .sentence { border-radius: 2px; transition: background-color 0.08s; }
+    .sentence.hovered:not(.green):not(.yellow):not(.red) { background: rgba(140,140,140,0.18); }
+    .sentence.green  { background: #b6f0b6; }
+    .sentence.yellow { background: #fff09a; }
+    .sentence.red    { background: #ffbbbb; }
+    .sentence.hovered.green  { background: #8ee08e; }
+    .sentence.hovered.yellow { background: #ffe040; }
+    .sentence.hovered.red    { background: #ff9090; }
+
+    /* ── Colour popup ── */
+    #color-popup {
+      position: fixed;
+      display: none;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 6px 8px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+      z-index: 200;
+      gap: 5px;
+      align-items: center;
+    }
+    #color-popup.visible { display: flex; }
+    .pop-btn {
+      width: 26px;
+      height: 26px;
+      border: 2px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0;
+      transition: border-color 0.1s;
+    }
+    .pop-btn:hover { border-color: #444 !important; }
+    .pop-btn.green  { background: #b6f0b6; border-color: #8ed88e; }
+    .pop-btn.yellow { background: #fff09a; border-color: #d8c860; }
+    .pop-btn.red    { background: #ffbbbb; border-color: #d89898; }
+    .pop-btn.clear  { background: #fff; border-color: #ccc; font-size: 13px; color: #555; }
+
+    /* ── Status bar ── */
+    #status {
+      font-family: sans-serif;
+      font-size: 12.5px;
+      color: #888;
+      text-align: center;
+      margin-top: 10px;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚦 Stoplight Highlighter</h1>
+
+  <div id="toolbar">
+    <label id="file-label" for="file-input">📂 Open .txt file…</label>
+    <input type="file" id="file-input" accept=".txt">
+    <span id="file-name">No file selected</span>
+    <button class="tbtn" id="export-btn" onclick="exportText()" disabled>💾 Export</button>
+    <button class="tbtn" id="clear-btn"  onclick="clearAll()"  disabled>🗑 Clear all</button>
+  </div>
+
+  <div id="instructions">
+    <strong>How to use:</strong>
+    Hover over a sentence, then press <kbd>G</kbd> for green, <kbd>Y</kbd> for yellow, or <kbd>R</kbd> for red.
+    Press <kbd>C</kbd> to clear the highlight.
+    To highlight a specific portion, <em>select text</em> and pick a colour from the popup.
+    Click <strong>Export</strong> to save the annotated file.
+    Exported files use <code>[green]…[/green]</code> / <code>[yellow]…[/yellow]</code> / <code>[red]…[/red]</code> markup and can be re-imported to continue editing.
+  </div>
+
+  <div id="text-container" class="empty"></div>
+
+  <div id="status"></div>
+
+  <!-- Colour-picker popup shown when text is selected -->
+  <div id="color-popup" role="toolbar" aria-label="Highlight colour">
+    <button class="pop-btn green"  title="Highlight green"  onclick="applySelectionColor('green')"></button>
+    <button class="pop-btn yellow" title="Highlight yellow" onclick="applySelectionColor('yellow')"></button>
+    <button class="pop-btn red"    title="Highlight red"    onclick="applySelectionColor('red')"></button>
+    <button class="pop-btn clear"  title="Clear highlight"  onclick="applySelectionColor(null)">✕</button>
+  </div>
+
+  <script>
+    'use strict';
+
+    /** @type {{ id: number, text: string, color: string|null }[]} */
+    let tokens = [];
+    let hoveredId   = null;   // id of the sentence currently under the cursor
+    let pendingRange = null;  // saved Range from a text selection
+
+    const fileInput = document.getElementById('file-input');
+    const container = document.getElementById('text-container');
+    const popup     = document.getElementById('color-popup');
+    const statusEl  = document.getElementById('status');
+    const exportBtn = document.getElementById('export-btn');
+    const clearBtn  = document.getElementById('clear-btn');
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // File loading
+    // ─────────────────────────────────────────────────────────────────────────
+
+    fileInput.addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file) return;
+      document.getElementById('file-name').textContent = file.name;
+      const reader = new FileReader();
+      reader.onload = ev => loadText(ev.target.result);
+      reader.readAsText(file);
+    });
+
+    function loadText(rawText) {
+      // Normalise line endings
+      rawText = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      tokens = parseText(rawText);
+      hoveredId = null;
+      render();
+      exportBtn.disabled = false;
+      clearBtn.disabled  = false;
+      setStatus('');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Parsing
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Parse raw text (which may contain [color]…[/color] markup) into tokens.
+     * @param {string} rawText
+     * @returns {{ id:number, text:string, color:string|null }[]}
+     */
+    function parseText(rawText) {
+      const segments = [];
+      const markupRe = /\[(green|yellow|red)\]([\s\S]*?)\[\/\1\]/g;
+      let last = 0, m;
+
+      while ((m = markupRe.exec(rawText)) !== null) {
+        if (m.index > last) {
+          splitIntoSentences(rawText.slice(last, m.index))
+            .forEach(t => segments.push({ text: t, color: null }));
+        }
+        segments.push({ text: m[2], color: m[1] });
+        last = markupRe.lastIndex;
+      }
+
+      if (last < rawText.length) {
+        splitIntoSentences(rawText.slice(last))
+          .forEach(t => segments.push({ text: t, color: null }));
+      }
+
+      // Drop empty segments and assign sequential ids
+      return segments.filter(s => s.text.length > 0).map((s, i) => ({ ...s, id: i }));
+    }
+
+    /**
+     * Split plain text into sentence-sized strings, preserving all whitespace.
+     * Each element ends at a sentence-ending character (.!?) or a run of newlines.
+     * @param {string} text
+     * @returns {string[]}
+     */
+    function splitIntoSentences(text) {
+      const parts = [];
+      // Three alternatives (tried in order by the regex engine):
+      //   1. A sentence: any chars (no .!? \n), ending in one-or-more .!?,
+      //      followed by optional horizontal whitespace then optional newlines.
+      //   2. A line without sentence-ending punctuation (ends at \n+ or $).
+      //   3. A run of bare newlines (paragraph separator).
+      // alt 1: sentence ending in .!?  alt 2: line without .!?  alt 3: bare newlines
+      const re = /[^.!?\n]*[.!?]+[ \t]*\n*|[^.!?\n]+(?:\n+|$)|\n+/g;
+      let mo;
+      while ((mo = re.exec(text)) !== null) {
+        if (mo[0]) parts.push(mo[0]);
+      }
+      // Safety: if nothing matched, return the whole string as one token
+      if (parts.length === 0 && text) parts.push(text);
+      return parts;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Rendering
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function render() {
+      container.innerHTML = '';
+      container.classList.toggle('empty', tokens.length === 0);
+
+      tokens.forEach(tok => {
+        const span = document.createElement('span');
+        span.className = 'sentence' + (tok.color ? ' ' + tok.color : '');
+        if (tok.id === hoveredId) span.classList.add('hovered');
+        span.dataset.id = tok.id;
+        span.textContent = tok.text;
+
+        span.addEventListener('mouseenter', () => {
+          hoveredId = tok.id;
+          span.classList.add('hovered');
+          setStatus('Press \u00A0G\u00A0 (green) \u00B7 \u00A0Y\u00A0 (yellow) \u00B7 \u00A0R\u00A0 (red) \u00B7 \u00A0C\u00A0 (clear)');
+        });
+        span.addEventListener('mouseleave', () => {
+          if (hoveredId === tok.id) hoveredId = null;
+          span.classList.remove('hovered');
+          setStatus('');
+        });
+
+        container.appendChild(span);
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Keyboard highlighting
+    // ─────────────────────────────────────────────────────────────────────────
+
+    document.addEventListener('keydown', e => {
+      if (hoveredId === null) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const map = { g: 'green', y: 'yellow', r: 'red', c: null };
+      const key = e.key.toLowerCase();
+      if (!(key in map)) return;
+
+      e.preventDefault();
+      applyTokenColor(hoveredId, map[key]);
+    });
+
+    function applyTokenColor(id, color) {
+      const tok = tokens.find(t => t.id === id);
+      if (!tok) return;
+      tok.color = color;
+      const span = container.querySelector(`[data-id="${id}"]`);
+      if (span) {
+        span.className = 'sentence hovered' + (color ? ' ' + color : '');
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Text-selection colour popup
+    // ─────────────────────────────────────────────────────────────────────────
+
+    document.addEventListener('mouseup', e => {
+      if (popup.contains(e.target)) return;
+
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        hidePopup();
+        return;
+      }
+      if (!container.contains(sel.anchorNode)) {
+        hidePopup();
+        return;
+      }
+
+      const range = sel.getRangeAt(0);
+      pendingRange = range.cloneRange();
+
+      const rect = range.getBoundingClientRect();
+      positionAndShowPopup(rect.left + rect.width / 2, rect.top);
+    });
+
+    function positionAndShowPopup(cx, cy) {
+      popup.classList.add('visible');
+      const POPUP_WIDTH = 140, POPUP_HEIGHT = 44;
+      let left = Math.round(cx - POPUP_WIDTH / 2);
+      let top  = Math.round(cy - POPUP_HEIGHT - 8);
+      left = Math.max(6, Math.min(left, window.innerWidth  - POPUP_WIDTH  - 6));
+      top  = Math.max(6, Math.min(top,  window.innerHeight - POPUP_HEIGHT - 6));
+      popup.style.left = left + 'px';
+      popup.style.top  = top  + 'px';
+    }
+
+    function hidePopup() {
+      popup.classList.remove('visible');
+      pendingRange = null;
+    }
+
+    /** Called by the popup colour buttons. */
+    function applySelectionColor(color) {
+      if (!pendingRange) { hidePopup(); return; }
+
+      const range = pendingRange;
+      const spans = Array.from(container.querySelectorAll('.sentence'));
+
+      const start = resolveEndpoint(spans, range.startContainer, range.startOffset);
+      const end   = resolveEndpoint(spans, range.endContainer,   range.endOffset);
+
+      if (!start || !end) { hidePopup(); return; }
+
+      // Normalise so start ≤ end
+      let s = start, normalizedEnd = end;
+      if (s.tokenId > normalizedEnd.tokenId || (s.tokenId === normalizedEnd.tokenId && s.offset > normalizedEnd.offset)) {
+        [s, normalizedEnd] = [normalizedEnd, s];
+      }
+
+      // Ignore zero-length selections
+      if (s.tokenId === normalizedEnd.tokenId && s.offset === normalizedEnd.offset) { hidePopup(); return; }
+
+      rebuildWithColor(s.tokenId, s.offset, normalizedEnd.tokenId, normalizedEnd.offset, color);
+      hidePopup();
+      window.getSelection().removeAllRanges();
+    }
+
+    /**
+     * Map a DOM range endpoint (container node + offset) to a token id and
+     * character offset within that token's text.
+     *
+     * @param {Element[]} spans
+     * @param {Node} node
+     * @param {number} domOffset
+     * @returns {{ tokenId: number, offset: number }|null}
+     */
+    function resolveEndpoint(spans, node, domOffset) {
+      for (const span of spans) {
+        if (span === node) {
+          // domOffset is a child-node index; 0 = before text, ≥1 = after
+          const charOffset = domOffset === 0 ? 0 : span.textContent.length;
+          return { tokenId: +span.dataset.id, offset: charOffset };
+        }
+        if (span.contains(node)) {
+          // node is (or is inside) the span's text node
+          const charOffset = (node.nodeType === Node.TEXT_NODE) ? domOffset : 0;
+          return { tokenId: +span.dataset.id, offset: charOffset };
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Rebuild the token array by splitting at the selection boundaries and
+     * applying `color` to everything in between, then re-render.
+     */
+    function rebuildWithColor(startId, startOff, endId, endOff, color) {
+      const newToks = [];
+
+      for (const tok of tokens) {
+        const { id, text } = tok;
+
+        if (id < startId || id > endId) {
+          // Outside selection – keep as-is
+          newToks.push({ text, color: tok.color });
+        } else if (id === startId && id === endId) {
+          // Selection is entirely within this token
+          if (startOff > 0)
+            newToks.push({ text: text.slice(0, startOff), color: tok.color });
+          newToks.push({ text: text.slice(startOff, endOff), color });
+          if (endOff < text.length)
+            newToks.push({ text: text.slice(endOff), color: tok.color });
+        } else if (id === startId) {
+          // First token of a multi-token selection
+          if (startOff > 0)
+            newToks.push({ text: text.slice(0, startOff), color: tok.color });
+          newToks.push({ text: text.slice(startOff), color });
+        } else if (id === endId) {
+          // Last token of a multi-token selection
+          newToks.push({ text: text.slice(0, endOff), color });
+          if (endOff < text.length)
+            newToks.push({ text: text.slice(endOff), color: tok.color });
+        } else {
+          // Middle tokens – fully covered
+          newToks.push({ text, color });
+        }
+      }
+
+      tokens = newToks.filter(t => t.text.length > 0).map((t, i) => ({ ...t, id: i }));
+      render();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Clear all / Export
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function clearAll() {
+      tokens.forEach(t => { t.color = null; });
+      render();
+    }
+
+    function exportText() {
+      if (!tokens.length) return;
+
+      let out = '';
+      for (const tok of tokens) {
+        out += tok.color ? `[${tok.color}]${tok.text}[/${tok.color}]` : tok.text;
+      }
+
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([out], { type: 'text/plain' }));
+      a.download = 'highlighted.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Misc helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    // Hide popup when clicking outside the text area and popup
+    document.addEventListener('click', e => {
+      if (!popup.contains(e.target) && !container.contains(e.target)) {
+        hidePopup();
+      }
+    });
+  </script>
+</body>
+</html>
