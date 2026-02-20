@@ -37,8 +37,14 @@
       border-radius: 4px;
       font-size: 14px;
       white-space: nowrap;
+      transition: background-color 0.1s, border-color 0.1s;
     }
     #file-label:hover { background: #e4e4e4; }
+    #file-label.drag-over {
+      background: #ddeeff;
+      border-color: #5599dd;
+      outline: 2px dashed #5599dd;
+    }
     #file-input { display: none; }
     #file-name { font-size: 13px; color: #777; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tbtn {
@@ -152,7 +158,7 @@
     <label id="file-label" for="file-input">📂 Open .txt file…</label>
     <input type="file" id="file-input" accept=".txt">
     <span id="file-name">No file selected</span>
-    <button class="tbtn" id="export-btn" onclick="exportText()" disabled>💾 Export</button>
+    <button class="tbtn" id="save-btn"   onclick="saveText()"  disabled>💾 Save</button>
     <button class="tbtn" id="clear-btn"  onclick="clearAll()"  disabled>🗑 Clear all</button>
   </div>
 
@@ -162,8 +168,9 @@
     Press <kbd>C</kbd> to clear the highlight.
     <strong>Click</strong> anywhere inside a sentence to split it into two independently highlightable pieces at that point.
     To highlight a specific portion, <em>select text</em> and pick a colour from the popup.
-    Click <strong>Export</strong> to save the annotated file.
-    Exported files use <code>[green]…[/green]</code> / <code>[yellow]…[/yellow]</code> / <code>[red]…[/red]</code> markup and can be re-imported to continue editing.
+    Click <strong>Save</strong> to save the annotated file (uses the original filename).
+    You can also <em>drag a .txt file</em> onto the Open button to load it.
+    Saved files use <code>[green]…[/green]</code> / <code>[yellow]…[/yellow]</code> / <code>[red]…[/red]</code> markup and can be re-opened to continue editing.
   </div>
 
   <div id="text-container" class="empty"></div>
@@ -183,15 +190,17 @@
 
     /** @type {{ id: number, text: string, color: string|null }[]} */
     let tokens = [];
-    let nextId      = 0;          // monotonic counter for token ids
-    let hoveredId   = null;       // id of the sentence currently under the cursor
-    let pendingRange = null;      // saved Range from a text selection
+    let nextId        = 0;          // monotonic counter for token ids
+    let hoveredId     = null;       // id of the sentence currently under the cursor
+    let pendingRange  = null;       // saved Range from a text selection
+    let currentFileName = 'annotated.txt'; // filename used by the Save button
 
     const fileInput = document.getElementById('file-input');
+    const fileLabel = document.getElementById('file-label');
     const container = document.getElementById('text-container');
     const popup     = document.getElementById('color-popup');
     const statusEl  = document.getElementById('status');
-    const exportBtn = document.getElementById('export-btn');
+    const saveBtn   = document.getElementById('save-btn');
     const clearBtn  = document.getElementById('clear-btn');
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -201,11 +210,32 @@
     fileInput.addEventListener('change', function () {
       const file = this.files[0];
       if (!file) return;
+      loadFile(file);
+    });
+
+    // ── Drag-and-drop onto the Open button ────────────────────────────────────
+    fileLabel.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      fileLabel.classList.add('drag-over');
+    });
+    fileLabel.addEventListener('dragleave', () => {
+      fileLabel.classList.remove('drag-over');
+    });
+    fileLabel.addEventListener('drop', e => {
+      e.preventDefault();
+      fileLabel.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) loadFile(file);
+    });
+
+    function loadFile(file) {
+      currentFileName = file.name;
       document.getElementById('file-name').textContent = file.name;
       const reader = new FileReader();
       reader.onload = ev => loadText(ev.target.result);
       reader.readAsText(file);
-    });
+    }
 
     function loadText(rawText) {
       // Normalise line endings
@@ -214,8 +244,8 @@
       tokens = parseText(rawText);
       hoveredId = null;
       render();
-      exportBtn.disabled = false;
-      clearBtn.disabled  = false;
+      saveBtn.disabled  = false;
+      clearBtn.disabled = false;
       setStatus('');
     }
 
@@ -528,7 +558,7 @@
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Clear all / Export
+    // Clear all / Save
     // ─────────────────────────────────────────────────────────────────────────
 
     function clearAll() {
@@ -536,17 +566,38 @@
       render();
     }
 
-    function exportText() {
+    async function saveText() {
       if (!tokens.length) return;
 
       let out = '';
       for (const tok of tokens) {
         out += tok.color ? `[${tok.color}]${tok.text}[/${tok.color}]` : tok.text;
       }
+      const blob = new Blob([out], { type: 'text/plain' });
 
+      // Use the File System Access API when available to save back to the same file
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: currentFileName,
+            types: [{ description: 'Text file', accept: { 'text/plain': ['.txt'] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          currentFileName = handle.name;
+          document.getElementById('file-name').textContent = handle.name;
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return; // user cancelled — do nothing
+          // Fall through to anchor-download fallback
+        }
+      }
+
+      // Fallback: anchor-download with the original filename
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([out], { type: 'text/plain' }));
-      a.download = 'highlighted.txt';
+      a.href = URL.createObjectURL(blob);
+      a.download = currentFileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
