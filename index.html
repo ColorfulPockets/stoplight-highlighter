@@ -160,6 +160,7 @@
     <strong>How to use:</strong>
     Hover over a sentence, then press <kbd>G</kbd> for green, <kbd>Y</kbd> for yellow, or <kbd>R</kbd> for red.
     Press <kbd>C</kbd> to clear the highlight.
+    <strong>Click</strong> anywhere inside a sentence to split it into two independently highlightable pieces at that point.
     To highlight a specific portion, <em>select text</em> and pick a colour from the popup.
     Click <strong>Export</strong> to save the annotated file.
     Exported files use <code>[green]…[/green]</code> / <code>[yellow]…[/yellow]</code> / <code>[red]…[/red]</code> markup and can be re-imported to continue editing.
@@ -182,8 +183,9 @@
 
     /** @type {{ id: number, text: string, color: string|null }[]} */
     let tokens = [];
-    let hoveredId   = null;   // id of the sentence currently under the cursor
-    let pendingRange = null;  // saved Range from a text selection
+    let nextId      = 0;          // monotonic counter for token ids
+    let hoveredId   = null;       // id of the sentence currently under the cursor
+    let pendingRange = null;      // saved Range from a text selection
 
     const fileInput = document.getElementById('file-input');
     const container = document.getElementById('text-container');
@@ -208,6 +210,7 @@
     function loadText(rawText) {
       // Normalise line endings
       rawText = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      nextId = 0;
       tokens = parseText(rawText);
       hoveredId = null;
       render();
@@ -244,8 +247,8 @@
           .forEach(t => segments.push({ text: t, color: null }));
       }
 
-      // Drop empty segments and assign sequential ids
-      return segments.filter(s => s.text.length > 0).map((s, i) => ({ ...s, id: i }));
+      // Drop empty segments and assign unique ids from the global counter
+      return segments.filter(s => s.text.length > 0).map(s => ({ ...s, id: nextId++ }));
     }
 
     /**
@@ -298,6 +301,18 @@
           setStatus('');
         });
 
+        // Click on a sentence (with no text selected) splits it at the click point
+        span.addEventListener('click', e => {
+          // If the user just made a text selection, let the popup handle it
+          const sel = window.getSelection();
+          if (sel && !sel.isCollapsed) return;
+
+          const offset = getCharOffsetAtPoint(span, e.clientX, e.clientY);
+          if (offset === null || offset === 0 || offset >= tok.text.length) return;
+
+          splitToken(tok.id, offset);
+        });
+
         container.appendChild(span);
       });
     }
@@ -326,6 +341,59 @@
       if (span) {
         span.className = 'sentence hovered' + (color ? ' ' + color : '');
       }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Click-to-split
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Return the character offset within `span`'s text that corresponds to the
+     * screen coordinates (cx, cy), using the browser's caret-hit-test APIs.
+     * Returns null if the offset cannot be determined.
+     * @param {Element} span
+     * @param {number} cx
+     * @param {number} cy
+     * @returns {number|null}
+     */
+    function getCharOffsetAtPoint(span, cx, cy) {
+      let node = null, offset = null;
+
+      if (document.caretPositionFromPoint) {
+        const pos = document.caretPositionFromPoint(cx, cy);
+        if (pos && span.contains(pos.offsetNode)) {
+          node = pos.offsetNode; offset = pos.offset;
+        }
+      } else if (document.caretRangeFromPoint) {
+        const range = document.caretRangeFromPoint(cx, cy);
+        if (range && span.contains(range.startContainer)) {
+          node = range.startContainer; offset = range.startOffset;
+        }
+      }
+
+      if (node === null) return null;
+      // If the hit is directly on the span element (not its text node), map child index
+      if (node === span) return offset === 0 ? 0 : span.textContent.length;
+      // Text node — offset is already a character offset within that node
+      return offset;
+    }
+
+    /**
+     * Split the token with the given id at charOffset, preserving each half's
+     * colour, then re-render.
+     * @param {number} id
+     * @param {number} charOffset
+     */
+    function splitToken(id, charOffset) {
+      const idx = tokens.findIndex(t => t.id === id);
+      if (idx === -1) return;
+      const tok = tokens[idx];
+      const left  = { id: nextId++, text: tok.text.slice(0, charOffset), color: tok.color };
+      const right = { id: nextId++, text: tok.text.slice(charOffset),    color: tok.color };
+      if (!left.text || !right.text) return;
+      tokens = [...tokens.slice(0, idx), left, right, ...tokens.slice(idx + 1)];
+      hoveredId = null;
+      render();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -455,7 +523,7 @@
         }
       }
 
-      tokens = newToks.filter(t => t.text.length > 0).map((t, i) => ({ ...t, id: i }));
+      tokens = newToks.filter(t => t.text.length > 0).map(t => ({ ...t, id: nextId++ }));
       render();
     }
 
